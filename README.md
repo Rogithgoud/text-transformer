@@ -14,10 +14,10 @@ language model — it is complete, provable understanding of every operation ins
 
 ## Status
 
-`Phase 0 — Research`  *(update this line as you progress; see [docs/ROADMAP.md](docs/ROADMAP.md))*
+`Phase 0 — Research, item 1 of 5 done`  (see [docs/ROADMAP.md](docs/ROADMAP.md))
 
-- [ ] Phase 0 — Research
-- [ ] Phase 1 — Repo + doc skeleton
+- [ ] Phase 0 — Research *(in progress: next-token prediction done, paper next)*
+- [x] Phase 1 — Repo + doc skeleton
 - [ ] Phase 2 — Math primitives
 - [ ] Phase 3 — Autodiff engine
 - [ ] Phase 4 — Data + tokenizer
@@ -37,10 +37,17 @@ language model — it is complete, provable understanding of every operation ins
 Allowed: `math`, `random`, `json`, `time`, `os`, `sys`, `pickle` (standard library only).
 Not allowed: any array/tensor/autodiff/ML library.
 
+**No GPU, and that is forced, not chosen.** A GPU is only reachable through CUDA, and CUDA is
+only reachable through the libraries this project bans. So this is a single-CPU-core project by
+definition — the constraint decided the hardware.
+
 **Consequence, stated honestly:** pure interpreted Python is thousands of times slower than
 a vectorised BLAS backend. So the model is deliberately tiny — character-level vocabulary,
 ~2 layers, small `d_model`, short context, ~100 KB of training text. A tiny model that is
 fully understood is the deliverable. Scale is not.
+
+The full rules I fixed for this project are at the top of
+[docs/00-research-notes.md](docs/00-research-notes.md).
 
 See [docs/01-math/README.md](docs/01-math/README.md) for the hand-written maths, and
 [docs/03-errors/](docs/03-errors/) for every bug hit along the way.
