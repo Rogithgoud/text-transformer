@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+
+# large or generated artefacts
+data/*.txt
+!data/README.md
+checkpoints/
+*.ckpt
+*.json.gz
+runs/*.log
+
+# editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
