@@ -26,7 +26,7 @@ would surprise me.
 | optimizer | Adam, b1 0.9, b2 0.999, eps 1e-8 |
 | learning rate | 3e-3 |
 | steps | 2000 |
-| parameter count | 41,761 |
+| parameter count | 29,697 |
 | random seed | 1337 |
 
 ## Environment
@@ -91,7 +91,9 @@ What it clearly learned:
   not a word but has exactly the right shape. Nothing told it this pattern existed.
 - **Real words.** his, how, And, by, with, the, she, my, shall, there, it, all, this, him, he.
   Mostly short and mostly common, which is what a 32 character context and 41k parameters can
-  hold.
+  hold. (I first wrote 41,761 in this file from memory instead of reading it off the model. The
+  real count from `model.num_params()` is 29,697. Numbers go in these docs from the output, not
+  from what I think I remember.)
 - **Word length and spacing.** Nothing is 20 characters long, and the spaces fall at plausible
   intervals, so the base frequency of space (15%) has been learned properly rather than crudely.
 - **Punctuation position.** Commas mid-line, full stops at the end of lines. Consistent with the
@@ -107,7 +109,7 @@ What it clearly did not learn:
   letters. It has learned which letters plausibly follow which, not which sequences are words.
 - **Meaning,** obviously.
 
-Why the output is this good and no better, specifically: 41,761 parameters, a 32 character memory,
+Why the output is this good and no better, specifically: 29,697 parameters, a 32 character memory,
 and 2000 steps, which at batch 4 and block 32 means the model saw about 256k characters, roughly a
 quarter of the corpus, once. That is the entire budget. The output is what that budget buys.
 
