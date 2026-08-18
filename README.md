@@ -1,122 +1,102 @@
 # text-transformer
 
-**A text-generation Transformer built from scratch in pure Python — no libraries.**
+A character level text generation transformer written in pure Python. No PyTorch, no TensorFlow,
+no NumPy. The matrix multiply, the softmax, the layernorm, every backward pass and the optimizer
+are all written out from the math.
 
-A character-level text-generation Transformer (decoder-only, GPT-style) implemented in
-**pure Python with only the standard library**. No PyTorch, no TensorFlow, no JAX, no NumPy,
-no SciPy. Every matrix multiply, every softmax, every gradient, and the optimizer are
-written by hand from the mathematics.
+The point was not to build a good language model. It was to understand every operation inside one,
+which is why the notes and the error log are in the repo next to the code.
 
-This repository is as much a **learning document** as it is code. The goal is not a good
-language model — it is complete, provable understanding of every operation inside one.
+## Rules I set for myself
 
----
+Standard library only: `math`, `random`, `json`, `time`, `os`. Nothing that does the numerical
+work for me.
 
-## Status
+That also means no GPU, and not by choice. A GPU is only reachable through CUDA, and CUDA is only
+reachable through the libraries I'm not using. So this runs on one CPU core, which is why the model
+is small: 29,697 parameters, a 32 character context, 2 layers.
 
-**It trains and it generates.** First real run: loss 5.02 → 2.19 val in 70 minutes on one CPU
-core, 29,697 parameters. Details in
-[docs/04-experiments/001-first-real-run.md](docs/04-experiments/001-first-real-run.md).
+## What it produced
 
-- [ ] Phase 0 — Research *(next-token prediction done, the paper itself still to read properly)*
-- [x] Phase 1 — Repo + doc skeleton
-- [x] Phase 2 — Math primitives *(matmul, softmax, layernorm, cross-entropy; my own `exp`/`sqrt`
-      still an optional extra)*
-- [x] Phase 3 — Backward passes + gradient checking *(hand-written per layer instead of a general
-      autograd engine, see below)*
-- [x] Phase 4 — Data + tokenizer
-- [x] Phase 5 — Transformer components
-- [x] Phase 6 — Model assembly / forward pass
-- [x] Phase 7 — Training (loss, backward, Adam)
-- [x] Phase 8 — Generation / sampling
-- [x] Phase 9 — Visual artifacts *(loss curve, attention heatmaps, embedding neighbours done;
-      positional and temperature plots still to do)*
-- [ ] Phase 10 — Final documentation
+Trained on Tiny Shakespeare for 2000 steps, 70 minutes on my laptop. Loss went from 5.02 to 2.19
+on held out text. Sampling at temperature 0.8 with top_k 10:
 
-**One deliberate change from the original plan:** the roadmap had a general autograd engine
-(record a graph, topologically sort it, propagate backwards). I built Route B instead — every
-layer has its own hand-written `backward()` that adds to its parameter gradients and returns the
-gradient of its input. Same chain rule, no graph machinery, and it got to a working training run
-much sooner. The trade-off: adding a new layer means deriving its backward by hand, and there is
-no `.backward()` to lean on.
+```
+KING RICHARD:
 
----
+Wit haw brest how his tast tour amar tworne,
+And shive by tore shives, coue hanceld
+Bun he she sond this him hall torre,
+Shall ling blave lery thar thee with tas hat, lande wather all cand hastess ting
+Heell shallost the st she my the scold.
 
-## The constraint, and why
+COUCICESTUS:
+Showes lond lichemees lich somerave
+```
 
-> No imports that do the numerical work for you.
+It learned the speech layout on its own: a name in capitals, a colon, a line break, then a capital
+letter. `COUCICESTUS:` is not a real name but it is exactly the right shape. There are real short
+words in there (how, his, And, by, with, thee, she, my, all), the word lengths are plausible,
+commas fall mid line and full stops at the end of lines.
 
-Allowed: `math`, `random`, `json`, `time`, `os`, `sys`, `pickle` (standard library only).
-Not allowed: any array/tensor/autodiff/ML library.
+It did not learn grammar or how to spell anything long, and it was never going to. The loss of 2.19
+means the model is choosing between about 9 characters at every step (e to the 2.19 is 8.9), so
+long words come out the right shape with the wrong letters. The context is 32 characters, about six
+words, so it cannot see a sentence. In 2000 steps at batch 4 it saw roughly 256k characters, about
+a quarter of the corpus, once. Validation loss stayed at or below training loss the whole way, so
+it is underfitting: the limit is model size and compute, not data.
 
-**No GPU, and that is forced, not chosen.** A GPU is only reachable through CUDA, and CUDA is
-only reachable through the libraries this project bans. So this is a single-CPU-core project by
-definition — the constraint decided the hardware.
+## Checks that the thing is actually correct
 
-**Consequence, stated honestly:** pure interpreted Python is thousands of times slower than
-a vectorised BLAS backend. So the model is deliberately tiny — character-level vocabulary,
-~2 layers, small `d_model`, short context, ~100 KB of training text. A tiny model that is
-fully understood is the deliverable. Scale is not.
+This matters more here than the loss does, because a wrong backward pass still produces a loss
+curve that goes down.
 
-The full rules I fixed for this project are at the top of
-[docs/00-research-notes.md](docs/00-research-notes.md).
+| Check | Result |
+|---|---|
+| every gradient against `(loss(w+h) - loss(w-h)) / 2h` | worst relative error 3.7e-08 over 128 cells |
+| memorise one batch | 2.51 down to 0.00096 in 200 steps |
+| a later token cannot change an earlier output | passes, and each position does still affect itself |
+| attention rows sum to 1, upper triangle exactly 0 | passes |
+| untrained loss against `ln(65) = 4.1744` | 4.35 with a small output head init |
 
-See [docs/01-math/README.md](docs/01-math/README.md) for the hand-written maths, and
-[docs/03-errors/](docs/03-errors/) for every bug hit along the way.
+The gradient check is the one I would point at first. It covers matmul, softmax, layernorm,
+attention, the residuals and the embedding, and 3.7e-08 means the derivations are right rather
+than approximately right.
 
----
+## The shapes, end to end
 
-## Reading order (for a reviewer)
-
-Read the repository in this order to follow the actual learning path:
-
-1. [docs/ROADMAP.md](docs/ROADMAP.md) — the plan, phase by phase
-2. [docs/00-research-notes.md](docs/00-research-notes.md) — concepts in my own words
-3. [docs/01-math/](docs/01-math/) — every formula, derived and hand-verified
-4. [docs/02-components/](docs/02-components/) — each Transformer part in isolation
-5. [docs/05-visuals/](docs/05-visuals/) — attention heatmaps, shape-flow diagram, loss curves
-6. [docs/04-experiments/](docs/04-experiments/) — every training run and its result
-7. [docs/03-errors/](docs/03-errors/) — the bug log: symptom, cause, maths reason, fix
-8. [docs/LEARNING-LOG.md](docs/LEARNING-LOG.md) — chronological journal
-9. [docs/00-open-questions.md](docs/00-open-questions.md) — what confused me, and the answers
-10. [docs/VIVA.md](docs/VIVA.md) — self-examination: the questions I must answer cold
-
----
-
-## Architecture
-
-Shapes for the run in experiment 001. `T = 32` positions, `C = 32` channels, `V = 65` characters.
+For the run above: 32 positions, 32 channels, 65 characters in the vocabulary.
 
 ```
  ids                     (32,)        32 character ids
-   |  embedding lookup                65 x 32 learnable table
+   |  embedding lookup                65 x 32 table, learned
  vectors                 (32, 32)     each character as 32 numbers
-   |  + positional encoding           fixed sin/cos, no parameters
+   |  + positional encoding           fixed sin/cos, nothing to learn
  vectors                 (32, 32)     now they also know where they are
    |  block 1                         2 heads
-   |     |- layernorm -> causal self-attention -> + residual
-   |     |- layernorm -> feed-forward 32->128->32 -> + residual
+   |     |- layernorm, attention, add back to x
+   |     |- layernorm, 32 -> 128 -> 32, add back to x
  vectors                 (32, 32)
    |  block 2                         same again
  vectors                 (32, 32)
    |  final layernorm
- vectors                 (32, 32)
    |  output head                     32 x 65
  logits                  (32, 65)     65 scores at every position
    |  softmax
- probabilities           (32, 65)     ready to sample from
+ probabilities           (32, 65)     sample from this
 ```
 
-The width never changes from the embedding to the head. That fixed-width channel is the residual
-stream: every block reads from it and adds back into it.
+The width never changes between the embedding and the output head. Every block reads from that
+fixed width channel and adds its result back into it.
 
-Inside one attention head: `Q·Kᵀ` → `÷√head_size` → mask the future with `-inf` → softmax each row
-→ weighted sum of `V`. The mask goes on **before** the softmax, so `exp(-inf) = 0` and the rows
-still sum to 1.
+Inside one attention head: three projections Q, K, V, then `Q` times `K` transposed to get a score
+for every pair of positions, divide by the square root of the head size, set the future cells to
+minus infinity, softmax each row, then take the weighted sum of V. The mask goes on before the
+softmax, so `exp(-inf)` is 0 and the rows still add up to 1.
 
-## How to run
+## Running it
 
-No dependencies. Python 3 standard library only.
+Nothing to install. Python 3 and the standard library.
 
 ```bash
 python tests/test_gradcheck.py
@@ -138,77 +118,55 @@ python src/generate.py 400 0.8 10 "KING RICHARD:"
 python src/visualise.py
 ```
 
-Run the tests and then `overfit` before any real run. `overfit` memorises a single batch — if the
-loss does not go to nearly zero, the backward pass is wrong and a long run would be wasted.
-`train` needs `data/input.txt`, see [data/README.md](data/README.md) for where to get it.
+Run the tests and then `overfit` before any long run. `overfit` trains on a single batch until it
+memorises it, and if the loss does not go to nearly zero then the backward pass is wrong and a
+three hour run would be wasted. `train` needs `data/input.txt`, see [data/README.md](data/README.md)
+for where I got it.
 
-## Results
+## The code
 
-Experiment 001, full write-up in
-[docs/04-experiments/001-first-real-run.md](docs/04-experiments/001-first-real-run.md):
-
-| | |
+| File | What it holds |
 |---|---|
-| parameters | 29,697 |
-| corpus | Tiny Shakespeare, 1,115,394 chars, vocab 65 |
-| config | `block_size` 32, `d_model` 32, 2 layers, 2 heads, batch 4, Adam 3e-3 |
-| initial loss | 5.0217 |
-| final loss | **2.2595 train, 2.1890 val** |
-| time | 70.3 min, 1.93 s/step, one CPU core |
+| [src/matrix.py](src/matrix.py) | matmul, transpose, random init, column sums |
+| [src/tokenizer.py](src/tokenizer.py) | characters to ids and back |
+| [src/dataset.py](src/dataset.py) | windows of text and the targets shifted by one |
+| [src/layers.py](src/layers.py) | linear, layernorm, embedding, softmax, relu, positions |
+| [src/attention.py](src/attention.py) | causal self attention, one head and multi head |
+| [src/block.py](src/block.py) | the feed forward layer and one full block |
+| [src/model.py](src/model.py) | the whole thing assembled, save and load |
+| [src/loss.py](src/loss.py) | cross entropy |
+| [src/optim.py](src/optim.py) | SGD and Adam |
+| [src/train.py](src/train.py) | the training loop |
+| [src/generate.py](src/generate.py) | sampling with temperature and top_k |
+| [src/visualise.py](src/visualise.py) | loss curve, attention grids, embedding neighbours, all as text |
 
-Correctness checks, which matter more here than the loss:
+There is no autograd engine. Each layer has its own `backward()` that adds to the gradients of its
+own parameters and returns the gradient of its input, which is the chain rule applied locally. I
+had planned to build a general graph based engine first, and changed my mind because this got to a
+working training run much sooner. The cost is that adding a new layer means deriving its backward
+by hand.
 
-| Check | Result |
-|---|---|
-| gradient check vs finite differences | worst relative error **3.7e-08** over 128 cells |
-| future cannot affect the past | passes, and each position does affect its own output |
-| attention rows sum to 1, upper triangle exactly 0 | passes |
-| overfit a single batch | 2.51 → **0.00096** in 200 steps |
-| initial loss vs `ln(65) = 4.1744` | 4.35 with a small init, 5.02 with the head at `1/√d` |
+Batches are a loop over sequences rather than an extra dimension, so every matrix stays 2D. In pure
+Python the whole thing is loop bound anyway, so a batch dimension would have cost complexity and
+bought nothing, and it kept the shapes simple while I was debugging.
 
-Sample, temperature 0.8, top-k 10:
+## Notes
 
-```
-KING RICHARD:
+- [docs/notes.md](docs/notes.md) is what the task actually is, worked out before I wrote any code
+- [docs/log.md](docs/log.md) is what I did each session and what I got wrong
+- [docs/questions.md](docs/questions.md) is what I still don't know
+- [docs/errors/](docs/errors/) is one file per bug, cause and math reason
+- [docs/experiments/](docs/experiments/) is one file per training run, prediction written
+  before the run
+- [docs/visuals/](docs/visuals/) is the attention grids and embedding neighbours, with what
+  I think they show
 
-Wit haw brest how his tast tour amar tworne,
-And shive by tore shives, coue hanceld
-Bun he she sond this him hall torre,
-Shall ling blave lery thar thee with tas hat, lande wather all cand hastess ting
-Heell shallost the st she my the scold.
+## What I would do next
 
-COUCICESTUS:
-Showes lond lichemees lich somerave
-```
+The loss was still dropping when the run stopped, so more steps is the cheapest improvement.
+After that a wider `d_model`, then a longer context, one change at a time so the result can be
+attributed. The one change already queued is a smaller init on the output head, because the run
+started at 5.02 instead of the 4.17 I predicted.
 
-**What it learned:** the speech structure (a capitalised name, a colon, a newline, then a capital
-letter — `COUCICESTUS:` is invented but exactly the right shape), real short words, sensible word
-lengths and spacing, commas mid-line and full stops at line ends.
-
-**What it did not learn, and why:** no grammar and no long-word spelling. The context is 32
-characters, about six words, so it cannot see a sentence. It ran for 2000 steps at batch 4, so it
-saw roughly 256k characters — about a quarter of the corpus, once. 29,697 parameters. The output is
-what that budget buys, and validation loss stayed at or below train loss throughout, so it is
-underfitting: the limit is model size and compute, not data.
-
-Two findings from the visual artifacts, written up in
-[docs/05-visuals/README.md](docs/05-visuals/README.md):
-
-- **The heads divide the work.** Block 0 head 0 is a local previous-character head, nearly all of
-  its weight on the diagonal and the cell to its left. Block 1 head 1 instead attends back to the
-  start of the line — which is what produces the `NAME:` structure. Local first, then structural,
-  which is why 2 layers beat 1.
-- **The embedding table learned categories nobody programmed.** Cosine similarity puts `.` `?` `!`
-  at 0.96/0.92 — nearly the same vector, because for predicting what comes next they are
-  interchangeable. Upper and lower case pairs found each other too: `t`/`T` 0.66, `a`/`A` 0.55,
-  `q`/`Q` 0.55.
-
-## Future work
-
-Deliberately out of scope for this project, listed so the boundary is explicit:
-dropout, learning-rate schedules, BPE/subword tokenisation, weight tying, KV caching,
-mixed precision, any form of parallelism.
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+Things I left out on purpose: dropout, learning rate schedules, subword tokenisation, weight
+tying, KV caching.

@@ -2,14 +2,14 @@
 
     python src/visualise.py
 
-Writes three files into docs/05-visuals/:
+Writes three files into docs/visuals/:
 
-    10-loss-curve.txt            training and validation loss, as ASCII
-    08-attention-heads.txt       one grid per head, for a fixed sentence
-    09-embedding-neighbours.md   nearest characters in embedding space
+    loss-curve.txt            training and validation loss, as ASCII
+    attention-heads.txt       one grid per head, for a fixed sentence
+    embedding-neighbours.md   nearest characters in embedding space
 
 A picture on its own proves nothing, so each file carries a note on what it
-shows. The interpretations are written up in docs/05-visuals/README.md.
+shows. What I think each one shows is written up in docs/visuals/notes.md.
 """
 
 import json
@@ -27,7 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 CKPT = os.path.join(ROOT, "checkpoints")
 RUNS = os.path.join(ROOT, "runs")
-OUT = os.path.join(ROOT, "docs", "05-visuals")
+OUT = os.path.join(ROOT, "docs", "visuals")
 
 SHADES = " .:-=+*#%@"          # low to high
 
@@ -81,7 +81,7 @@ def loss_curve(width=70, height=20):
     lines.append("sequences, so each point is one small sample, not the whole corpus.")
     lines.append("val is measured on held out text the optimizer never touched.")
 
-    path = os.path.join(OUT, "10-loss-curve.txt")
+    path = os.path.join(OUT, "loss-curve.txt")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     print("wrote %s" % path)
@@ -138,7 +138,7 @@ def attention_maps(sentence="First Citizen:\nBefore we go"):
                 lines.append("%-6s |%s" % (labels[i][:5], "".join(cells)))
             lines.append("")
 
-    path = os.path.join(OUT, "08-attention-heads.txt")
+    path = os.path.join(OUT, "attention-heads.txt")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     print("wrote %s" % path)
@@ -180,7 +180,7 @@ def embedding_neighbours(probes=" etaoTqz.\n", k=6):
         top = ", ".join("%s %.2f" % (show_char(c), s) for s, c in sims[:k])
         lines.append("- `%s` -> %s" % (show_char(ch), top))
 
-    path = os.path.join(OUT, "09-embedding-neighbours.md")
+    path = os.path.join(OUT, "embedding-neighbours.md")
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     print("wrote %s" % path)

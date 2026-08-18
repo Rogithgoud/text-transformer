@@ -17,7 +17,7 @@ cancellation), so the answer is dominated by float noise.
 Relative error is what gets compared, not the absolute difference, because the
 gradients vary in size by orders of magnitude across the model.
 
-One catch, see docs/03-errors/001: when both gradients are essentially zero the
+One catch, see docs/errors/001: when both gradients are essentially zero the
 relative error is meaningless, because dividing float noise by float noise gives
 anything. Those cells are checked on absolute difference instead.
 """
