@@ -8,9 +8,6 @@ sequences in train.py, not by adding a third dimension, so the shapes stay
 easy to follow: (T, C) means T positions, C numbers per position.
 """
 
-import math
-import random
-
 
 def zeros(rows, cols):
     """Shape (rows, cols), all 0.0.
