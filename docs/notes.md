@@ -1,214 +1,116 @@
 # What the task actually is
 
-Worked out before I wrote any code, because I wanted to know what I was building rather than copy a
-diagram. Everything here is in my own words.
+I worked this out before writing any code, because I wanted to know what I was building.
 
-## The task as probability
+## The one thing the model does
 
-The model estimates one thing:
+Guess the next character from the characters before it. That is all.
 
-```
-P( next character | all the characters before it )
-```
-
-I did not see at first how one small question like that covers all of language. It does, because of
-the chain rule of probability. The probability of a whole string splits into a product of next
-character questions:
+It looks too small to be useful, but the probability of a whole string breaks into a chain of
+exactly these guesses:
 
 ```
 P("hello") = P(h) x P(e|h) x P(l|h,e) x P(l|h,e,l) x P(o|h,e,l,l)
 ```
 
-Every factor is the same kind of question, so a model that answers "what comes next" can score any
-text at all.
+Every factor is the same question. So a model that answers "what comes next" can score any text.
 
-"Given everything before" also means a position may only look backwards:
-
-```
-position:   0    1    2    3    4
-char:       h    e    l    l    o
-
-to predict position 4 I may use:  h  e  l  l
-                                  ^^^^^^^^^^  the past
-                                            o   not this
-```
-
-That restriction is where the causal mask comes from. It is not a trick somebody invented, it falls
-out of the definition. If the model could see the future it would copy the answer and learn nothing,
-and at generation time the future does not exist anyway.
+And "from the characters before it" means a position can only look backwards. That is where the
+causal mask comes from. It is not a trick someone invented, it is in the definition. If the model
+could see ahead it would just copy the answer, and at generation time there is nothing ahead
+anyway.
 
 ## Why one character at a time gives paragraphs
 
-The model only ever predicts one step. Long text comes from feeding its own output back in.
+Run it in a loop and feed its own output back in.
 
 ```
-  "h"      -> model -> probabilities -> pick 'e'
-  "he"     -> model -> probabilities -> pick 'l'
-  "hel"    -> model -> probabilities -> pick 'l'
-  "hell"   -> model -> probabilities -> pick 'o'
-     ^                                    |
-     |________ append it and go again ____|
+"h"      -> guess -> e
+"he"     -> guess -> l
+"hel"    -> guess -> l
+"hell"   -> guess -> o
 ```
 
-Three things follow, and all three showed up in my results.
+Three things follow from this, and all three showed up in my results.
 
-The input keeps growing, so there has to be a maximum context. Mine is 32 characters, and past that
-the oldest characters get dropped. The model has no memory of anything earlier, at all.
+The input keeps growing, so there has to be a limit. Mine is 32 characters and past that the oldest
+get dropped, so the model genuinely cannot remember the start of a long paragraph.
 
-Mistakes compound, because a bad character becomes part of the input for every step after it. That
-is why weak output degenerates into nonsense partway through instead of staying slightly wrong.
+Mistakes compound, because a bad character becomes input for every step after it. That is why bad
+output degenerates instead of staying slightly wrong.
 
-Training and generation are different situations. In training the model always gets real text. In
-generation it gets its own output. Nothing in a basic setup fixes that, so it goes in the readme as
-a limitation.
+Training and generating are different situations. Training always feeds it real text, generating
+feeds it its own text. Nothing in a basic setup fixes that.
 
 ## What comes out at one position
 
-The vocabulary is every unique character in the corpus, 65 of them for Shakespeare. At each position
-the model outputs exactly 65 numbers, one score per possible next character.
+65 numbers, one score per possible next character. These are called logits and they are raw, they
+can be negative and they do not add up to anything.
 
-```
-              char:    a     b     c    ...   o   ...   z
-             score:  -1.2   0.4  -3.1   ...  5.8  ...  -0.7
-                     |______________ 65 numbers ____________|
-                                these are logits
-```
+Softmax turns them into probabilities. It does two jobs: `exp` makes everything positive and
+exaggerates the gaps, then dividing by the sum forces the total to 1.
 
-Logits are raw scores. They can be negative, they can be large, they do not add up to anything.
-Softmax turns them into probabilities, because I need every value between 0 and 1 and the whole set
-summing to 1:
-
-```
-      logits (raw)                     probabilities (after softmax)
-
- o  |#################  5.8      o  |#######################  0.71
- l  |#######            2.1      l  |###                      0.09
- a  |                  -1.2      a  |                         0.01
- b  |#                   0.4     b  |.                        0.02
- c  |                  -3.1      c  |                         0.00
-    total unconstrained             everything else           0.17
-                                    ------------------------------
-                                                    total = 1.00
-```
-
-Softmax does two jobs. `exp` on every score forces them positive and exaggerates the gaps, so a
-lead of 2 in logits becomes a much bigger lead in probability, which is where the name soft max
-comes from. Then dividing by the sum forces the total to 1.
-
-One thing I did not expect: during training the model gives 65 numbers at every position from a
-single pass, not just at the last one.
-
-```
-input:  h    e    l    l      ->   output is (4 positions x 65 scores)
-        |    |    |    |
-        v    v    v    v
-      [65] [65] [65] [65]          four predictions, one pass
-```
-
-So a window of 32 characters gives 32 training signals rather than 1.
+One thing I did not expect. During training the model gives me 65 numbers at *every* position from
+one pass, not just the last one. So a window of 32 characters is 32 training signals, not 1.
 
 ## What a training example looks like
 
 Did this by hand for "hello" with a window of 4.
 
-Vocabulary, sorted unique characters, then numbered:
+Sorted unique characters get numbered: `e=0 h=1 l=2 o=3`, so "hello" is `[1,0,2,2,3]`.
+
+Take 4, then take the same 4 shifted one to the right:
 
 ```
-e=0  h=1  l=2  o=3        "hello" -> [1, 0, 2, 2, 3]
+input  = [1, 0, 2, 2]     "hell"
+target = [0, 2, 2, 3]     "ello"
 ```
 
-Take a window and shift it by one:
+So `target[i]` is `input[i+1]`. Nothing more than that.
+
+The bit that made it click is that this one pair is four separate problems:
 
 ```
-              text:          h    e    l    l    o
-              ids:           1    0    2    2    3
-
- input  = first 4:        +----+----+----+----+
-                          | h  | e  | l  | l  |         [1, 0, 2, 2]
-                          +----+----+----+----+
-                             \    \    \    \
-                               v    v    v    v
- target = last 4:           +----+----+----+----+
-                            | e  | l  | l  | o  |       [0, 2, 2, 3]
-                            +----+----+----+----+
+ pos | can see | must predict
+-----+---------+-------------
+  0  | h       | e
+  1  | h e     | l
+  2  | h e l   | l
+  3  | h e l l | o
 ```
 
-The target is the input moved one step earlier, so `target[i] = input[i+1]`.
-
-Then the part that made it click. That one pair contains four separate problems:
+Look at the "can see" column. It grows by one each row, so it is a triangle:
 
 ```
- pos | can see | must predict | input ids | target
------+---------+--------------+-----------+--------
-  0  | h       | e            | [1]       | 0
-  1  | h e     | l            | [1,0]     | 2
-  2  | h e l   | l            | [1,0,2]   | 2
-  3  | h e l l | o            | [1,0,2,2] | 3
+          h  e  l  l
+ pos 0 [  y  n  n  n ]
+ pos 1 [  y  y  n  n ]
+ pos 2 [  y  y  y  n ]
+ pos 3 [  y  y  y  y ]
 ```
 
-The "can see" column is a triangle that grows by one each row:
+That triangle is the mask. I got to it from the definition of the problem, before reading anything
+about attention, so when I built the mask later I already knew what it was for.
 
-```
-          can see ->    h    e    l    l
-  pos 0            [    y    n    n    n  ]
-  pos 1            [    y    y    n    n  ]
-  pos 2            [    y    y    y    n  ]
-  pos 3            [    y    y    y    y  ]
-```
-
-That triangle is the causal mask. I got to it from the definition of the task rather than from the
-paper, which means when I built the mask later I already knew what it was for: keep the lower
-triangle including the diagonal, block everything above it.
-
-It also explains how one pass gives four problems. Position 0 is solving a one character problem
-while position 3 is solving a four character problem, in the same pass, and the mask is what stops
-them cheating off each other.
+It also explains the 32 signals from one pass. Position 0 is solving a one character problem while
+position 3 solves a four character one, at the same time, and the mask is what stops them cheating
+off each other.
 
 ## The off by one
 
-The window has to fit the input and the shifted target. With 5 characters and a window of 4:
+The window needs to fit the input and the shifted target. With 5 characters and a window of 4, the
+only legal start is 0, because the target needs a character past the end of the input.
 
-```
- legal start positions: only 0     input = chars 0..3, target = chars 1..4
-
- start = 1 -> input  = chars 1..4 = "ello"
-              target = chars 2..5 = "llo?"   character 5 does not exist
-```
-
-So a random start index has to come from `0 .. len(data) - block_size - 1`. Forget the `- 1` and
-you either get an IndexError or, worse, quietly wrong data. This is tested in
-`tests/test_dataset.py`.
+So the random start has to come from `0 .. len(data) - block_size - 1`. Miss that `- 1` and you
+either crash or, worse, quietly train on wrong data. Tested in `tests/test_dataset.py`.
 
 ## Checking myself
 
-I redid the whole thing for "banana" with a window of 3, from memory, to make sure I had it and was
-not just following along:
+Redid the whole thing for "banana" with a window of 3 from memory:
 
 ```
- a=0  b=1  n=2        "banana" -> [1, 0, 2, 0, 2, 0]
-
- window at 0:  input = [1, 0, 2] "ban"    target = [0, 2, 0] "ana"
-
- pos | can see | must predict
- ----+---------+-------------
-  0  | b       | a
-  1  | b a     | n
-  2  | b a n   | a
-
- legal starts with 6 characters and a window of 3: 0, 1, 2
+a=0 b=1 n=2      "banana" -> [1,0,2,0,2,0]
+input  = [1,0,2]  "ban"
+target = [0,2,0]  "ana"
+legal starts: 0, 1, 2
 ```
-
-## Words I had to learn
-
-Logit, a raw unbounded score, one per vocabulary entry, not a probability until softmax.
-
-Token, one unit of input. Here a token is a single character.
-
-Context or block size, how many past characters the model may see. Mine is 32.
-
-Autoregressive, feeding the model's own output back in as input, one step at a time.
-
-Causal mask, blocking the future half of the attention grid.
-
-Residual stream, the fixed width channel that runs from the embedding to the output head, that every
-block reads from and adds back into.
