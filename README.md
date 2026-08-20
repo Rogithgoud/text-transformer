@@ -17,7 +17,7 @@ through CUDA, and you can only reach CUDA through the libraries I am not allowed
 everything here runs on a single CPU core, one multiplication at a time. That is the reason my
 model is tiny: 29,697 parameters, 2 layers, and it can only see 32 characters at a time.
 
-## How it works, in my own words
+## How it works
 
 The model does one thing. It looks at the characters so far and guesses the next one.
 
