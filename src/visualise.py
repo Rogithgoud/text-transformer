@@ -1,15 +1,14 @@
-"""Visual artifacts, without matplotlib. Everything is printed as text.
+"""Plots, from the trained checkpoint and the training log.
 
     python src/visualise.py
 
-Writes three files into docs/visuals/:
+Writes four PNGs into docs/visuals/. matplotlib is allowed here because it only
+draws pictures, it does not do any of the model's math.
 
-    loss-curve.txt            training and validation loss, as ASCII
-    attention-heads.txt       one grid per head, for a fixed sentence
-    embedding-neighbours.md   nearest characters in embedding space
-
-A picture on its own proves nothing, so each file carries a note on what it
-shows. What I think each one shows is written up in docs/visuals/notes.md.
+    loss.png        training and validation loss
+    attention.png   one attention grid per head
+    embedding.png   how close the learned character vectors are to each other
+    positions.png   the positional encoding table
 """
 
 import json
@@ -18,74 +17,23 @@ import os
 import random
 import sys
 
+import matplotlib
+matplotlib.use("Agg")               # no window, just save files
+import matplotlib.pyplot as plt
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from model import Model
 from tokenizer import Tokenizer
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(HERE)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CKPT = os.path.join(ROOT, "checkpoints")
 RUNS = os.path.join(ROOT, "runs")
 OUT = os.path.join(ROOT, "docs", "visuals")
 
-SHADES = " .:-=+*#%@"          # low to high
 
-
-def show_char(ch):
-    return {"\n": "\\n", " ": "_", "\t": "\\t"}.get(ch, ch)
-
-
-def loss_curve(width=70, height=20):
-    """Read runs/train_log.txt and draw both losses on one grid."""
-    steps, train, val = [], [], []
-    with open(os.path.join(RUNS, "train_log.txt"), encoding="utf-8") as f:
-        for line in f:
-            if line.startswith("#") or line.startswith("step"):
-                continue
-            a, b, c, _ = line.split("\t")
-            steps.append(int(a))
-            train.append(float(b))
-            val.append(float(c))
-
-    lo = min(min(train), min(val))
-    hi = max(max(train), max(val))
-    last_step = steps[-1]
-
-    grid = [[" "] * width for _ in range(height)]
-
-    def plot(xs, ys, mark):
-        for s, v in zip(xs, ys):
-            col = int((s - steps[0]) / max(1, last_step - steps[0]) * (width - 1))
-            row = int((hi - v) / (hi - lo) * (height - 1))
-            grid[row][col] = mark
-
-    plot(steps, val, "v")
-    plot(steps, train, "t")        # train drawn last so it wins any overlap
-
-    lines = []
-    lines.append("training loss (t) and validation loss (v)")
-    lines.append("")
-    for r, row in enumerate(grid):
-        value = hi - (hi - lo) * r / (height - 1)
-        lines.append("%6.2f | %s" % (value, "".join(row)))
-    lines.append("       +" + "-" * width)
-    lines.append("        %-*s%s" % (width - len(str(last_step)), steps[0], last_step))
-    lines.append("        step")
-    lines.append("")
-    lines.append("start  train %.4f   val %.4f" % (train[0], val[0]))
-    lines.append("end    train %.4f   val %.4f" % (train[-1], val[-1]))
-    lines.append("ln(vocab) = %.4f is where an untrained model sits" % math.log(65))
-    lines.append("")
-    lines.append("the train line is noisy because every step is a fresh batch of only 4")
-    lines.append("sequences, so each point is one small sample, not the whole corpus.")
-    lines.append("val is measured on held out text the optimizer never touched.")
-
-    path = os.path.join(OUT, "loss-curve.txt")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-    print("wrote %s" % path)
-    print("\n".join(lines))
+def label(ch):
+    return {"\n": "\\n", " ": "sp"}.get(ch, ch)
 
 
 def load_model():
@@ -98,102 +46,120 @@ def load_model():
     return m, tok
 
 
-def attention_maps(sentence="First Citizen:\nBefore we go"):
-    """Run one sentence and draw every head's attention grid.
+def loss_plot():
+    steps, train, val = [], [], []
+    with open(os.path.join(RUNS, "train_log.txt"), encoding="utf-8") as f:
+        for line in f:
+            if line.startswith("#") or line.startswith("step"):
+                continue
+            a, b, c, _ = line.split("\t")
+            steps.append(int(a))
+            train.append(float(b))
+            val.append(float(c))
 
-    Cell (i, j) is how much position i attended to position j. Only the lower
-    triangle can be non zero, because of the causal mask.
+    plt.figure(figsize=(9, 5))
+    plt.plot(steps, train, linewidth=0.9, alpha=0.7, label="train")
+    plt.plot(steps, val, linewidth=1.6, label="validation")
+    plt.axhline(math.log(65), linestyle="--", color="grey",
+                label="ln(65) = 4.17, knows nothing")
+    plt.xlabel("step")
+    plt.ylabel("loss")
+    plt.title("loss, 2000 steps on Tiny Shakespeare")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    path = os.path.join(OUT, "loss.png")
+    plt.savefig(path, dpi=110, bbox_inches="tight")
+    plt.close()
+    print("wrote %s  (start %.2f, end train %.2f val %.2f)"
+          % (path, train[0], train[-1], val[-1]))
 
-    Each row is shaded against its own maximum, not against 1.0. A row sums to 1
-    and is spread over i+1 cells, so later rows are diluted and would all look
-    blank on an absolute scale. This is a relative scale within each row.
-    """
+
+def attention_plot(sentence="First Citizen:\nBefore we go"):
+    """Each grid cell (i, j) is how much position i attended to position j.
+    Only the lower triangle can be non zero, that is the causal mask."""
     m, tok = load_model()
     ids = tok.encode(sentence)[:m.block_size]
     m.forward(ids)
-    labels = [show_char(tok.itos[i]) for i in ids]
+    ticks = [label(tok.itos[i]) for i in ids]
 
-    lines = ["attention grids for: %r" % sentence,
-             "",
-             "cell (row i, col j) = how much position i attends to position j.",
-             "shaded against each row's own maximum: '%s' is low, '%s' is high."
-             % (SHADES[1], SHADES[-1]),
-             "blank above the diagonal is the causal mask, exactly zero.",
-             ""]
+    heads = [(b_i, h_i, h) for b_i, b in enumerate(m.blocks)
+             for h_i, h in enumerate(b.attn.heads)]
 
-    for b_i, block in enumerate(m.blocks):
-        for h_i, head in enumerate(block.attn.heads):
-            lines.append("block %d, head %d" % (b_i, h_i))
-            header = "        " + "".join("%-2s" % lab[:2] for lab in labels)
-            lines.append(header)
-            for i, row in enumerate(head.probs):
-                mx = max(row[:i + 1])
-                cells = []
-                for j in range(len(row)):
-                    if j > i:
-                        cells.append("  ")
-                    else:
-                        level = int(row[j] / mx * (len(SHADES) - 1)) if mx > 0 else 0
-                        cells.append(SHADES[level] * 2)
-                lines.append("%-6s |%s" % (labels[i][:5], "".join(cells)))
-            lines.append("")
-
-    path = os.path.join(OUT, "attention-heads.txt")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+    fig, axes = plt.subplots(2, 2, figsize=(11, 11))
+    for ax, (b_i, h_i, head) in zip(axes.flat, heads):
+        ax.imshow(head.probs, cmap="viridis")
+        ax.set_title("block %d, head %d" % (b_i, h_i))
+        ax.set_xticks(range(len(ticks)))
+        ax.set_xticklabels(ticks, fontsize=6)
+        ax.set_yticks(range(len(ticks)))
+        ax.set_yticklabels(ticks, fontsize=6)
+        ax.set_xlabel("looking at")
+        ax.set_ylabel("from position")
+    fig.suptitle('attention for "First Citizen:\\nBefore we go"')
+    path = os.path.join(OUT, "attention.png")
+    plt.savefig(path, dpi=110, bbox_inches="tight")
+    plt.close()
     print("wrote %s" % path)
-    print("\n".join(lines))
 
 
 def cosine(u, v):
     nu = math.sqrt(sum(a * a for a in u))
     nv = math.sqrt(sum(b * b for b in v))
-    if nu == 0.0 or nv == 0.0:
-        return 0.0
-    return sum(a * b for a, b in zip(u, v)) / (nu * nv)
+    return 0.0 if nu == 0 or nv == 0 else sum(a * b for a, b in zip(u, v)) / (nu * nv)
 
 
-def embedding_neighbours(probes=" etaoTqz.\n", k=6):
-    """Nearest characters in embedding space, by cosine similarity.
-
-    Nothing told the model which characters are related. If similar characters
-    end up close together, that came purely from them being useful in the same
-    places, which is what gradient descent does to the embedding table.
-    """
+def embedding_plot(probes="etaoinshrlu ATQ.?!,;\n"):
+    """Cosine similarity between the learned vectors of some characters.
+    Nothing in the code groups characters, so any pattern here was learned."""
     m, tok = load_model()
     table = m.tok_emb.weight.data
+    chars = [c for c in probes if c in tok.stoi]
+    rows = [table[tok.stoi[c]] for c in chars]
+    grid = [[cosine(u, v) for v in rows] for u in rows]
 
-    lines = ["# Embedding neighbours after training",
-             "",
-             "Cosine similarity between rows of the embedding table. 1.0 means the same",
-             "direction, 0.0 unrelated, -1.0 opposite. Nothing in the code groups characters,",
-             "so any structure here was learned from the text.",
-             ""]
+    plt.figure(figsize=(9, 8))
+    plt.imshow(grid, cmap="RdBu_r", vmin=-1, vmax=1)
+    plt.colorbar(label="cosine similarity")
+    plt.xticks(range(len(chars)), [label(c) for c in chars], fontsize=8)
+    plt.yticks(range(len(chars)), [label(c) for c in chars], fontsize=8)
+    plt.title("how close the learned character vectors are")
+    path = os.path.join(OUT, "embedding.png")
+    plt.savefig(path, dpi=110, bbox_inches="tight")
+    plt.close()
 
-    for ch in probes:
-        if ch not in tok.stoi:
+    # the few pairs worth quoting in the notes
+    for a in [".", "t", "a", "q", " "]:
+        if a not in tok.stoi:
             continue
-        i = tok.stoi[ch]
-        sims = [(cosine(table[i], table[j]), tok.itos[j])
-                for j in range(len(table)) if j != i]
-        sims.sort(reverse=True)
-        top = ", ".join("%s %.2f" % (show_char(c), s) for s, c in sims[:k])
-        lines.append("- `%s` -> %s" % (show_char(ch), top))
-
-    path = os.path.join(OUT, "embedding-neighbours.md")
-    with open(path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+        sims = sorted(((cosine(table[tok.stoi[a]], table[j]), tok.itos[j])
+                       for j in range(len(table)) if j != tok.stoi[a]), reverse=True)
+        print("  %-3s closest: %s" % (label(a),
+              ", ".join("%s %.2f" % (label(c), s) for s, c in sims[:4])))
     print("wrote %s" % path)
-    print("\n".join(lines))
+
+
+def positions_plot():
+    """The sin/cos table. Every row is one position's fingerprint."""
+    m, _ = load_model()
+    plt.figure(figsize=(9, 5))
+    plt.imshow(m.pos, aspect="auto", cmap="coolwarm")
+    plt.colorbar(label="value")
+    plt.xlabel("channel (0 to 31)")
+    plt.ylabel("position in the window")
+    plt.title("positional encoding, fixed sin and cos, nothing learned")
+    path = os.path.join(OUT, "positions.png")
+    plt.savefig(path, dpi=110, bbox_inches="tight")
+    plt.close()
+    print("wrote %s" % path)
 
 
 if __name__ == "__main__":
     what = sys.argv[1] if len(sys.argv) > 1 else "all"
     if what in ("all", "loss"):
-        loss_curve()
-        print()
+        loss_plot()
     if what in ("all", "attn"):
-        attention_maps()
-        print()
+        attention_plot()
     if what in ("all", "emb"):
-        embedding_neighbours()
+        embedding_plot()
+    if what in ("all", "pos"):
+        positions_plot()

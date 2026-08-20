@@ -163,8 +163,12 @@ memorising it. So the limit here is model size and compute, not the amount of te
 
 ## The plots
 
-No matplotlib either, so [src/visualise.py](src/visualise.py) draws everything with characters.
-What I think each one shows is in [docs/visuals/notes.md](docs/visuals/notes.md).
+[src/visualise.py](src/visualise.py) draws four of them with matplotlib. I used a plotting library
+here on purpose: the rule was that nothing else can do the model's math, and matplotlib only draws
+pictures. All four, with what I think each one shows, are in
+[docs/visuals/notes.md](docs/visuals/notes.md).
+
+![loss](docs/visuals/loss.png)
 
 Two things surprised me.
 
@@ -181,9 +185,12 @@ or a newline and then a capital, so for guessing the next character they are int
 and lower case pairs found each other too, `t` with `T` at 0.66, `a` with `A` at 0.55. Nothing in
 my code connects them. They are just two unrelated ids that happen to behave the same way in text.
 
-I am not going to pretend all of it is meaningful. `z` came out close to `v` at 0.80, and I cannot
-justify that. My guess is that rare characters never get enough gradient to be pushed anywhere, so
-they keep most of their random starting values and any similarity between two of them is noise.
+![embedding](docs/visuals/embedding.png)
+
+That dark red block in the corner is the punctuation. But I am not going to pretend all of it is
+meaningful. `z` came out close to `v` at 0.80, and I cannot justify that. My guess is that rare
+characters never get enough gradient to be pushed anywhere, so they keep most of their random
+starting values and any similarity between two of them is noise.
 
 ## Running it
 
